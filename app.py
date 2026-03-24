@@ -9,30 +9,47 @@ st.title("📍 Village Live Map - Lucknow")
 
 @st.cache_data
 def load_data():
-    # Shapefile aur Excel load ho rahi hai
+    # 1. Shapefile load karein
     gdf = gpd.read_file("Franchise_village_Mar2026.shp")
+    
+    # 2. Excel load karein
     df = pd.read_excel("Distributor & Spoke Location 2026.xlsx")
     
-    # Dono ko join karne ka logic (V_ID common column hona chahiye)
-    # Agar column ka naam alag hai toh yahan change karein
-    merged = gdf.merge(df, on="V_ID") 
+    # Data Cleaning: Column names se extra space hatayein
+    gdf.columns = gdf.columns.str.strip()
+    df.columns = df.columns.str.strip()
+    
+    # 3. 'DBR_Area' column ka use karke join karein
+    merged = gdf.merge(df, on="DBR_Area") 
     return merged
 
 try:
     data = load_data()
-    # Map Lucknow par set hai
-    m = folium.Map(location=[26.8467, 80.9462], zoom_start=10)
     
+    # Map ka center (Lucknow coordinates)
+    m = folium.Map(location=[26.8467, 80.9462], zoom_start=9)
+    
+    # Map par data dikhana (Choropleth)
     folium.Choropleth(
         geo_data=data,
-        name="Status",
+        name="Sales Status",
         data=data,
-        columns=["V_ID", "Target_Value"], # Excel ka column name yahan aayega
-        key_on="feature.properties.V_ID",
+        columns=["DBR_Area", "Target"], # Yahan 'Target' ki jagah Excel ka sales column name likhein
+        key_on="feature.properties.DBR_Area",
         fill_color="YlOrRd",
-        legend_name="Sales Scale"
+        fill_opacity=0.7,
+        line_opacity=0.2,
+        legend_name="Performance Scale"
+    ).add_to(m)
+
+    # Tooltip: Jab mouse map par le jayein toh naam dikhe
+    folium.GeoJson(
+        data,
+        tooltip=folium.GeoJsonTooltip(fields=["DBR_Area"], aliases=["Area Name:"])
     ).add_to(m)
 
     st_folium(m, width="100%", height=600)
+    
 except Exception as e:
     st.error(f"Error: {e}")
+    st.info("Check karein ki Excel aur Shapefile dono mein 'DBR_Area' column ki spelling same hai.")
