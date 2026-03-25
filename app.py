@@ -5,85 +5,77 @@ import folium
 from streamlit_folium import st_folium
 import plotly.express as px
 
-st.set_page_config(page_title="Dynamic Business Dashboard", layout="wide")
+st.set_page_config(page_title="DBR Live Dashboard", layout="wide")
 
-# Title and Sidebar
-st.title("📂 Automated Business Intelligence Dashboard")
-st.sidebar.header("Configuration")
+st.title("📂 Strategic Business Dashboard")
 
-# 1. File Uploader in Sidebar
-uploaded_file = st.sidebar.file_uploader("Upload your Excel file", type=['xlsx', 'csv'])
-
-# 2. Shapefile Load (Local folder se)
+# 1. Shapefile Load logic
 @st.cache_data
 def load_map():
     try:
         gdf = gpd.read_file("Franchise_village_Mar2026.shp")
         if gdf.crs is not None and not gdf.crs.is_geographic:
             gdf = gdf.to_crs(epsg=4326)
+        gdf.columns = gdf.columns.str.strip() # Spaces hatane ke liye
         return gdf
     except:
         return None
 
 gdf = load_map()
 
-if uploaded_file is not None:
-    # Data Reading
-    if uploaded_file.name.endswith('.csv'):
-        df = pd.read_csv(uploaded_file)
-    else:
-        df = pd.read_excel(uploaded_file)
+# 2. File Uploader
+uploaded_file = st.sidebar.file_uploader("Upload Excel", type=['xlsx', 'csv'])
 
-    # Clean Column Names
+if uploaded_file is not None:
+    df = pd.read_excel(uploaded_file) if uploaded_file.name.endswith('xlsx') else pd.read_csv(uploaded_file)
     df.columns = df.columns.str.strip()
 
-    # --- KPI ROW ---
-    col1, col2, col3, col4 = st.columns(4)
+    # Dashboard Metrics
+    col1, col2 = st.columns(2)
     col1.metric("Total Rows", len(df))
     
-    # Dynamics Metrics (Agar columns exist karte hain)
-    if 'Population' in df.columns:
-        col2.metric("Total Population", f"{df['Population'].sum():,}")
-    if 'Volume_This_Year' in df.columns:
-        col3.metric("Current Volume", f"{df['Volume_This_Year'].sum():,}")
+    # Auto-find numeric columns for charts
+    num_cols = df.select_dtypes(include=['number']).columns.tolist()
     
-    st.divider()
-
-    # --- MAP & CHART SECTION ---
     left, right = st.columns([1.5, 1])
 
     with left:
-        st.subheader("📍 Real-time Area Map")
+        st.subheader("📍 DBR Coverage Map")
+        # Yahan hum check kar rahe hain ki 'DBR_Area' column dono jagah hai ya nahi
         if gdf is not None and 'DBR_Area' in df.columns:
-            merged = gdf.merge(df, on="DBR_Area")
+            # Merge logic with fillna to avoid TypeError
+            merged = gdf.merge(df, on="DBR_Area", how="left")
+            merged = merged.fillna(0) 
+            
             m = folium.Map(location=[26.8467, 80.9462], zoom_start=9)
             
-            folium.Choropleth(
-                geo_data=merged,
-                data=merged,
-                columns=["DBR_Area", df.columns[1]], # Second column for coloring
-                key_on="feature.properties.DBR_Area",
-                fill_color="YlOrRd",
-                legend_name="Data Intensity"
-            ).add_to(m)
+            # Agar koi number column mil jaye toh use rangne ke liye use karein
+            color_col = num_cols[0] if num_cols else None
+            
+            if color_col:
+                folium.Choropleth(
+                    geo_data=merged,
+                    data=merged,
+                    columns=["DBR_Area", color_col],
+                    key_on="feature.properties.DBR_Area",
+                    fill_color="YlOrRd",
+                    nan_fill_color="white",
+                    legend_name=f"Scale: {color_col}"
+                ).add_to(m)
+            
+            folium.GeoJson(merged, tooltip=folium.GeoJsonTooltip(fields=["DBR_Area"])).add_to(m)
             st_folium(m, width="100%", height=500)
         else:
-            st.info("Shapefile aur Excel join karne ke liye 'DBR_Area' column zaroori hai.")
+            st.warning("Excel mein 'DBR_Area' naam ka column hona zaroori hai.")
 
     with right:
-        st.subheader("📊 Data Visualizer")
-        # User dynamic chart choose kar sakta hai
-        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
-        if numeric_cols:
-            y_axis = st.selectbox("Select metric for Chart", numeric_cols)
-            fig = px.bar(df, x=df.columns[0], y=y_axis, color=y_axis, 
-                         title=f"{y_axis} by {df.columns[0]}")
+        st.subheader("📊 Data Insights")
+        if num_cols:
+            fig = px.bar(df, x=df.columns[0], y=num_cols[0], title="Quick Comparison")
             st.plotly_chart(fig, use_container_width=True)
 
-    # --- FULL DATA TABLE ---
-    st.subheader("📑 Preview Uploaded Data")
-    st.dataframe(df, use_container_width=True)
+    st.subheader("📑 Data Preview")
+    st.dataframe(df.head(10))
 
 else:
-    st.info("👈 Dashboard dekhne ke liye sidebar se Excel file upload karein.")
-    st.image("https://streamlit.io/images/brand/streamlit-mark-color.png", width=100)
+    st.info("👈 Dashboard shuru karne ke liye Excel upload karein.")
